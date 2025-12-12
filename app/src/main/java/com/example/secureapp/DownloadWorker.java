@@ -235,7 +235,7 @@ public class DownloadWorker extends Worker {
         String appSecret = MainActivity.APP_SECRET; // المفتاح السري
 
         // رابط الـ API
-        String url = "https://courses.aw478260.dpdns.org/api/secure/get-pdf?pdfId=" + pdfId;
+        String url = "https://berlin.aw478260.dpdns.org/api/secure/get-pdf?pdfId=" + pdfId;
 
         // مسار الحفظ
         File dir = new File(context.getFilesDir(), "secure_pdfs");
