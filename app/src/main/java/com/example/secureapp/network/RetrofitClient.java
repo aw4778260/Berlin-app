@@ -20,7 +20,7 @@ public class RetrofitClient {
 
             retrofit = new Retrofit.Builder()
                     // استبدل الرابط القديم بهذا:
-.baseUrl("https://courses.aw478260.dpdns.org/")
+.baseUrl("https://berlin.aw478260.dpdns.org/")
                     .client(client) // ✅ ربط العميل الجديد
                     .addConverterFactory(GsonConverterFactory.create())
                     .build();
