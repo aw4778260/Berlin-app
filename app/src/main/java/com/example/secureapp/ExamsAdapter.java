@@ -47,7 +47,7 @@ public class ExamsAdapter extends RecyclerView.Adapter<ExamsAdapter.ViewHolder> 
         // 3. معالجة النقر (روابط نظيفة بدون بيانات حساسة)
         holder.itemView.setOnClickListener(v -> {
             // الرابط الأساسي
-            String baseUrl = "https://courses.aw478260.dpdns.org";
+            String baseUrl = "https://berlin.aw478260.dpdns.org";
             String targetUrl;
 
             // التحقق من الحالة لتحديد الوجهة
