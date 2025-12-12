@@ -9,7 +9,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.example.secureapp"
+        applicationId "com.example.secureapp.berlin"
         minSdk 24
         targetSdk 34
         versionCode System.getenv("BUILD_NUMBER") ? System.getenv("BUILD_NUMBER").toInteger() : 1
