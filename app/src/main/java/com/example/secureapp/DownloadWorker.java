@@ -99,6 +99,8 @@ public class DownloadWorker extends Worker {
         if (youtubeId == null || displayTitle == null || specificUrl == null || specificUrl.isEmpty()) {
             String errorMsg = "Missing input data. URL is " + (specificUrl == null ? "NULL" : "EMPTY");
             Log.e(TAG, errorMsg);
+            // تسجيل الخطأ في فايربيس
+            FirebaseCrashlytics.getInstance().recordException(new Exception(errorMsg));
             return Result.failure();
         }
 
@@ -178,6 +180,8 @@ public class DownloadWorker extends Worker {
                     Log.d(TAG, "✅ Real duration calculated: " + duration + " seconds");
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to calculate real duration, keeping original: " + duration, e);
+                    // تسجيل الخطأ البسيط في فايربيس (اختياري)
+                    FirebaseCrashlytics.getInstance().log("Duration calc failed: " + e.getMessage());
                 }
 
                 // --- المرحلة 3: التشفير والحفظ ---
@@ -199,6 +203,8 @@ public class DownloadWorker extends Worker {
             } else {
                 String ffmpegError = session.getFailStackTrace();
                 Log.e(TAG, "FFmpeg Failed: " + ffmpegError);
+                // تسجيل خطأ المعالجة في فايربيس
+                FirebaseCrashlytics.getInstance().recordException(new Exception("FFmpeg Failed: " + ffmpegError));
                 throw new IOException("FFmpeg failed: " + ffmpegError);
             }
 
@@ -214,7 +220,9 @@ public class DownloadWorker extends Worker {
                 return Result.failure();
             }
             
+            // ✅✅ تسجيل الاستثناء في Crashlytics كما طلبت
             FirebaseCrashlytics.getInstance().recordException(e);
+            
             sendNotification(notificationId, "فشل التحميل", displayTitle, 0, false);
             return Result.failure();
         }
@@ -247,8 +255,8 @@ public class DownloadWorker extends Worker {
             setForegroundAsync(createForegroundInfo("جاري تحميل الملف...", title, 0, true));
             
             OkHttpClient client = new OkHttpClient.Builder()
-                    .connectTimeout(120, TimeUnit.SECONDS) // زيادة مهلة الـ PDF أيضاً
-                    .readTimeout(120, TimeUnit.SECONDS)
+                    .connectTimeout(180, TimeUnit.SECONDS) // زيادة مهلة الـ PDF أيضاً
+                    .readTimeout(180, TimeUnit.SECONDS)
                     .build();
 
             Request req = new Request.Builder()
@@ -290,6 +298,7 @@ public class DownloadWorker extends Worker {
         } catch (Exception e) {
             Log.e(TAG, "PDF Download Failed", e);
             if(targetFile.exists()) targetFile.delete(); 
+            // ✅ تسجيل الخطأ في فايربيس
             FirebaseCrashlytics.getInstance().recordException(e);
             sendNotification(pdfId.hashCode(), "فشل تحميل الملف", title, 0, false);
             return Result.failure();
@@ -348,7 +357,11 @@ public class DownloadWorker extends Worker {
                                     return segResponse.body().bytes();
                                 }
                             } catch (Exception e) {
-                                if (attempt >= maxRetries) throw e;
+                                if (attempt >= maxRetries) {
+                                    // إذا استنفذ المحاولات، نرمي الخطأ ونسجله
+                                    FirebaseCrashlytics.getInstance().log("Segment failed after " + maxRetries + " attempts: " + segUrl);
+                                    throw e;
+                                }
                                 Thread.sleep(1000 * attempt); // انتظار تصاعدي قبل المحاولة التالية
                             }
                         }
@@ -461,4 +474,4 @@ public class DownloadWorker extends Worker {
             notificationManager.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Download Notifications", NotificationManager.IMPORTANCE_MIN));
         }
     }
-    }
+}
