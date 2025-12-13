@@ -8,7 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
-import android.media.MediaMetadataRetriever; // ✅ جديد: لحساب المدة
+import android.media.MediaMetadataRetriever;
 import android.os.Build;
 import android.provider.Settings;
 import android.util.Log;
@@ -132,9 +132,13 @@ public class DownloadWorker extends Worker {
 
         try {
             ConnectionPool pool = new ConnectionPool(5, 5, TimeUnit.MINUTES);
+            
+            // ✅ تعديل: زيادة المهلة إلى 3 دقائق (180 ثانية)
             OkHttpClient client = new OkHttpClient.Builder()
                     .connectionPool(pool)
-                    .readTimeout(60, TimeUnit.SECONDS)
+                    .connectTimeout(180, TimeUnit.SECONDS) // كانت 60
+                    .readTimeout(180, TimeUnit.SECONDS)    // كانت 60
+                    .writeTimeout(180, TimeUnit.SECONDS)   // كانت 60
                     .retryOnConnectionFailure(true)
                     .build();
 
@@ -163,14 +167,13 @@ public class DownloadWorker extends Worker {
             if (ReturnCode.isSuccess(session.getReturnCode())) {
                 if (isStopped()) throw new IOException("Work cancelled by user");
 
-                // ✅✅ [إصلاح المدة] حساب المدة الحقيقية من الملف المحمل
+                // حساب المدة الحقيقية
                 try {
                     MediaMetadataRetriever retriever = new MediaMetadataRetriever();
                     retriever.setDataSource(tempMp4File.getAbsolutePath());
                     String time = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
                     long timeInMillis = Long.parseLong(time);
                     retriever.release();
-                    // تحويل المللي ثانية إلى ثواني (string) للتوافق مع DownloadsActivity
                     duration = String.valueOf(timeInMillis / 1000.0);
                     Log.d(TAG, "✅ Real duration calculated: " + duration + " seconds");
                 } catch (Exception e) {
@@ -187,7 +190,6 @@ public class DownloadWorker extends Worker {
                 
                 if (isStopped()) throw new IOException("Work cancelled by user");
 
-                // حفظ البيانات (بالمدة الصحيحة الآن)
                 saveCompletion(youtubeId, displayTitle, duration, safeSubject, safeChapter, safeFileName);
                 
                 sendNotification(notificationId, "تم التحميل", displayTitle, 100, false);
@@ -218,7 +220,7 @@ public class DownloadWorker extends Worker {
         }
     }
 
-    // ✅ [إصلاح PDF] دالة تحميل الـ PDF مع الهيدرز الأمنية
+    // دالة تحميل الـ PDF
     private Result downloadPdf() {
         String pdfId = getInputData().getString("pdfId");
         String title = getInputData().getString("videoTitle"); 
@@ -228,16 +230,13 @@ public class DownloadWorker extends Worker {
         if (subject == null) subject = "Uncategorized";
         if (chapter == null) chapter = "General";
 
-        // جلب بيانات المصادقة
         SharedPreferences prefs = context.getSharedPreferences("SecureAppPrefs", Context.MODE_PRIVATE);
         String userId = prefs.getString("TelegramUserId", "");
         String deviceId = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ANDROID_ID);
-        String appSecret = MainActivity.APP_SECRET; // المفتاح السري
+        String appSecret = MainActivity.APP_SECRET;
 
-        // رابط الـ API
         String url = "https://berlin.aw478260.dpdns.org/api/secure/get-pdf?pdfId=" + pdfId;
 
-        // مسار الحفظ
         File dir = new File(context.getFilesDir(), "secure_pdfs");
         if (!dir.exists()) dir.mkdirs();
         
@@ -247,8 +246,11 @@ public class DownloadWorker extends Worker {
         try {
             setForegroundAsync(createForegroundInfo("جاري تحميل الملف...", title, 0, true));
             
-            OkHttpClient client = new OkHttpClient();
-            // ✅ إضافة الهيدرز الأمنية للطلب
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(120, TimeUnit.SECONDS) // زيادة مهلة الـ PDF أيضاً
+                    .readTimeout(120, TimeUnit.SECONDS)
+                    .build();
+
             Request req = new Request.Builder()
                     .url(url)
                     .addHeader("x-user-id", userId)
@@ -258,12 +260,10 @@ public class DownloadWorker extends Worker {
             
             try (Response response = client.newCall(req).execute()) {
                 if (!response.isSuccessful()) {
-                    // تسجيل الخطأ لمعرفة السبب
                     Log.e(TAG, "PDF Server Error: " + response.code());
                     throw new IOException("Server Error: " + response.code());
                 }
                 
-                // التشفير والحفظ
                 String masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC);
                 EncryptedFile encryptedFile = new EncryptedFile.Builder(
                         targetFile, context, masterKeyAlias,
@@ -283,7 +283,6 @@ public class DownloadWorker extends Worker {
             }
             
             saveCompletion("PDF_" + pdfId, title, "PDF", subject, chapter, saveName);
-            
             sendNotification(pdfId.hashCode(), "اكتمل التحميل", title, 100, false);
             Log.d(TAG, "✅ PDF Downloaded & Encrypted: " + targetFile.getAbsolutePath());
             return Result.success();
@@ -299,6 +298,7 @@ public class DownloadWorker extends Worker {
 
     // --- الدوال المساعدة ---
 
+    // ✅ التعديل هنا: إضافة Retry Logic وتقليل الـ Parallelism
     private void downloadHlsSegments(OkHttpClient client, String m3u8Url, OutputStream outputStream, String id, String title) throws IOException {
         Request playlistRequest = new Request.Builder().url(m3u8Url).header("User-Agent", USER_AGENT).build();
         List<String> segmentUrls = new ArrayList<>();
@@ -321,7 +321,9 @@ public class DownloadWorker extends Worker {
         if (segmentUrls.isEmpty()) throw new IOException("Empty m3u8 playlist");
 
         int totalSegments = segmentUrls.size();
-        int parallelism = 4;
+        
+        // ✅ تقليل عدد الـ Threads إلى 3 لتخفيف الضغط على الشبكة
+        int parallelism = 3;
         ExecutorService executor = Executors.newFixedThreadPool(parallelism);
         Map<Integer, Future<byte[]>> activeTasks = new HashMap<>();
         int nextSubmitIndex = 0;
@@ -332,23 +334,40 @@ public class DownloadWorker extends Worker {
                 while (activeTasks.size() < parallelism && nextSubmitIndex < totalSegments) {
                     if (isStopped()) break;
                     final String segUrl = segmentUrls.get(nextSubmitIndex);
+                    
+                    // ✅ إضافة منطق إعادة المحاولة (Retry Logic)
                     Callable<byte[]> task = () -> {
-                        Request segRequest = new Request.Builder().url(segUrl).header("User-Agent", USER_AGENT).build();
-                        try (Response segResponse = client.newCall(segRequest).execute()) {
-                            if (!segResponse.isSuccessful()) throw new IOException("Failed segment");
-                            return segResponse.body().bytes(); 
+                        int maxRetries = 3;
+                        int attempt = 0;
+                        while (true) {
+                            try {
+                                attempt++;
+                                Request segRequest = new Request.Builder().url(segUrl).header("User-Agent", USER_AGENT).build();
+                                try (Response segResponse = client.newCall(segRequest).execute()) {
+                                    if (!segResponse.isSuccessful()) throw new IOException("Failed segment code: " + segResponse.code());
+                                    return segResponse.body().bytes();
+                                }
+                            } catch (Exception e) {
+                                if (attempt >= maxRetries) throw e;
+                                Thread.sleep(1000 * attempt); // انتظار تصاعدي قبل المحاولة التالية
+                            }
                         }
                     };
+                    
                     activeTasks.put(nextSubmitIndex, executor.submit(task));
                     nextSubmitIndex++;
                 }
                 if (isStopped()) throw new IOException("Work cancelled");
                 Future<byte[]> future = activeTasks.get(i);
                 if (future == null) throw new IOException("Lost task " + i);
+                
                 try {
                     byte[] segmentData = future.get(); 
                     outputStream.write(segmentData);
-                } catch (Exception e) { throw new IOException("Segment write error", e); }
+                } catch (Exception e) { 
+                    throw new IOException("Segment write error after retries", e); 
+                }
+                
                 activeTasks.remove(i);
                 int progress = (int) (((float) (i + 1) / totalSegments) * 90);
                 updateProgress(id, title, progress);
@@ -442,4 +461,4 @@ public class DownloadWorker extends Worker {
             notificationManager.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Download Notifications", NotificationManager.IMPORTANCE_MIN));
         }
     }
-}
+    }
