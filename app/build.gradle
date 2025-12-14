@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace 'com.example.secureapp'
+    namespace 'com.example.secureapp.berlin'
     compileSdk 34
 
     defaultConfig {
