@@ -378,7 +378,7 @@ public class NativeHomeActivity extends AppCompatActivity {
             try {
                 OkHttpClient client = new OkHttpClient();
                 Request request = new Request.Builder()
-                        .url("https://api.github.com/repos/aw4788260/Apk-code-/releases/latest")
+                        .url("https://api.github.com/repos/aw4778260/Berlin-app/releases/latest")
                         .build();
 
                 okhttp3.Response response = client.newCall(request).execute();
